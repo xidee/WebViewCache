@@ -4,10 +4,13 @@
 //
 //  Created by xidee on 16/3/31.
 //  Copyright © 2016年 xidee All rights reserved.
-//
+/*
+ 原理：注册NSURLProtocol，截获app url请求，指定类型的资源文件用本地数据替换,若本地数据没有，则执行下载缓存到沙盒。从而实现web页面的缓存。
+ */
 
 #import "YTURLProtocol.h"
 #import <UIKit/UIImage.h>
+#import <UIKit/UIDevice.h>
 
 #define HOST @"10.32.150.113"
 
@@ -21,7 +24,7 @@
     //增加host的判断 与Suffix的判断 请他请求忽略
     if ([request.URL.lastPathComponent hasSuffix:@"html"] || [request.URL.lastPathComponent hasSuffix:@"js"] || [request.URL.lastPathComponent hasSuffix:@"png"] || [request.URL.lastPathComponent hasSuffix:@"css"]) {
         if ([request.URL.host isEqualToString:HOST]) {
-//            NSLog(@"截获url需求替换的请求%@",request.URL);
+            //            NSLog(@"截获url需求替换的请求%@",request.URL);
             return YES;
         }
         return NO;
@@ -52,7 +55,7 @@
     //文件名称
     NSRange range = [Url rangeOfString:@"http://10.32.150.113/"];
     NSString *dataName = [Url stringByReplacingCharactersInRange:range withString:@""];
-
+    
     //取得文件类型 并且去掉后缀
     if([Url.lastPathComponent hasSuffix:@"html"])
     {
@@ -65,7 +68,7 @@
         mimiType=[NSString stringWithFormat:@"application/x-javascript"];
         dataType = @"js";
     }
-
+    
     if([Url.lastPathComponent hasSuffix:@"png"])
     {
         mimiType=[NSString stringWithFormat:@"image/png"];
@@ -89,7 +92,15 @@
         //标记这个request已经请求过 否则会一直重复请求
         NSMutableURLRequest * request = [self.request mutableCopy];
         [NSURLProtocol setProperty:@(YES) forKey:@"protocolKey" inRequest:request];
-        self.connection = [NSURLConnection connectionWithRequest:request delegate:self];
+        //版本兼容处理
+        if ([[UIDevice currentDevice].systemVersion floatValue] >= 7.0) {
+            NSURLSessionConfiguration * config = [NSURLSessionConfiguration defaultSessionConfiguration];
+            self.session = [NSURLSession sessionWithConfiguration:config delegate:self delegateQueue:[NSOperationQueue mainQueue]];
+            NSURLSessionDataTask * task = [self.session dataTaskWithRequest:request];
+            [task resume];
+        }else{
+            self.connection = [NSURLConnection connectionWithRequest:request delegate:self];
+        }
     }else
     {   //本地有数据直接作为结果返回
         NSURLResponse *response = [[NSURLResponse alloc] initWithURL:self.request.URL MIMEType:mimiType expectedContentLength:[data length] textEncodingName:textEncodingName];
@@ -102,7 +113,12 @@
 
 - (void)stopLoading
 {
-    [self.connection cancel];
+    if ([[UIDevice currentDevice].systemVersion floatValue] >= 7.0) {
+        [self.session invalidateAndCancel];
+        self.session = nil;
+    }else{
+        [self.connection cancel];
+    }
 }
 
 #pragma mark - NSURLConnectionDelegate
@@ -113,7 +129,51 @@
 - (void)connection:(NSURLConnection *)connection didReceiveData:(NSData *)data
 {
     [self.client URLProtocol:self didLoadData:data];
-    //下载完成后缓存到本地
+    [self writeToFileWithData:data];
+}
+
+- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
+    [self.client URLProtocolDidFinishLoading:self];
+}
+
+- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
+    [self.client URLProtocol:self didFailWithError:error];
+}
+
+#pragma mark - NSURLSessionDataDelegate
+
+-(void)URLSession:(NSURLSession *)session task:(NSURLSessionTask *)task didCompleteWithError:(NSError *)error
+{
+    if (error) {
+        [self.client URLProtocol:self didFailWithError:error];
+    } else {
+        [self.client URLProtocolDidFinishLoading:self];
+    }
+}
+
+-(void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveResponse:(NSURLResponse *)response completionHandler:(void (^)(NSURLSessionResponseDisposition))completionHandler
+{
+    [self.client URLProtocol:self didReceiveResponse:response cacheStoragePolicy:NSURLCacheStorageNotAllowed];
+    completionHandler(NSURLSessionResponseAllow);
+}
+
+-(void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask didReceiveData:(NSData *)data
+{
+    [self.client URLProtocol:self didLoadData:data];
+    [self writeToFileWithData:data];
+}
+
+- (void)URLSession:(NSURLSession *)session dataTask:(NSURLSessionDataTask *)dataTask
+ willCacheResponse:(NSCachedURLResponse *)proposedResponse
+ completionHandler:(void (^)(NSCachedURLResponse *cachedResponse))completionHandler
+{
+    completionHandler(proposedResponse);
+}
+
+#pragma mark - writeToFile
+- (BOOL)writeToFileWithData :(NSData *)data
+{
+    //下载完成后缓存到本地 (缓存到沙盒当中)
     //缓存路径
     NSString *Url = [NSString stringWithFormat:@"%@",self.request.URL];
     NSRange range = [Url rangeOfString:@"http://10.32.150.113/"];
@@ -127,40 +187,37 @@
     datapath = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)lastObject]stringByAppendingString:datapath];
     //文件路径
     NSString *cachesPath = [[NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)lastObject]stringByAppendingString:dataName];
-
+    
     // 判断文件夹是否存在，如果不存在，则创建
     if (![[NSFileManager defaultManager] fileExistsAtPath:datapath]) {
-         NSFileManager *fileManager = [[NSFileManager alloc] init];
+        NSFileManager *fileManager = [[NSFileManager alloc] init];
         if([fileManager createDirectoryAtPath:datapath withIntermediateDirectories:YES attributes:nil error:nil])
         {
             if([data writeToFile:cachesPath atomically:YES])
             {
                 NSLog(@"写入本地完成%@",cachesPath);
+                return YES;
             }else
             {
                 NSLog(@"写入本地失败%@",cachesPath);
+                return NO;
             }
         }else
         {
             NSLog(@"创建文件夹失败%@",cachesPath);
+            return NO;
         }
     }else{
         if([data writeToFile:cachesPath atomically:YES])
         {
             NSLog(@"写入本地完成%@",cachesPath);
+            return YES;
         }else
         {
             NSLog(@"写入本地失败%@",cachesPath);
+            return NO;
         }
     }
-}
-
-- (void)connectionDidFinishLoading:(NSURLConnection *)connection {
-    [self.client URLProtocolDidFinishLoading:self];
-}
-
-- (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error {
-    [self.client URLProtocol:self didFailWithError:error];
 }
 
 @end
