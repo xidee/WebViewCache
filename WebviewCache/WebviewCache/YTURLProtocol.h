@@ -8,9 +8,6 @@
 
 #import <Foundation/Foundation.h>
 
-@interface YTURLProtocol : NSURLProtocol <NSURLConnectionDataDelegate,NSURLSessionDelegate>
-
-@property (nonatomic ,strong) NSURLConnection *connection;
-@property (nonatomic ,strong) NSURLSession *session;
+@interface YTURLProtocol : NSURLProtocol <NSURLSessionDelegate>
 
 @end
