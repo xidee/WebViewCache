@@ -103,6 +103,17 @@
 {
     completionHandler(proposedResponse);
 }
+//通过这个方法跳过ssl证书验证
+- (void)URLSession:(NSURLSession *)session didReceiveChallenge:(NSURLAuthenticationChallenge *)challenge
+ completionHandler:(void (^)(NSURLSessionAuthChallengeDisposition disposition, NSURLCredential * __nullable credential))completionHandler
+{
+    //当challenge 为证书信任时
+    if (challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust) {
+        //告诉服务端信任证书
+        NSURLCredential *credntial = [NSURLCredential credentialForTrust:challenge.protectionSpace.serverTrust];
+        completionHandler(NSURLSessionAuthChallengeUseCredential,credntial);
+    }
+}
 
 #pragma mark - tool methed
 

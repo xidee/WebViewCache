@@ -8,9 +8,10 @@
 
 #import "ViewController.h"
 
-@interface ViewController ()
+@interface ViewController ()<UIWebViewDelegate,NSURLSessionDelegate>
 @property (weak, nonatomic) IBOutlet UIWebView *webview;
-@property (weak, nonatomic) IBOutlet UIImageView *testimageView;
+@property (nonatomic ,strong) NSURLSession *session;
+@property (nonatomic ,strong) NSMutableURLRequest *request;
 
 @end
 
@@ -19,16 +20,10 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
 
-    NSURL *url = [NSURL URLWithString:@"http://10.32.150.113/#/login"];
+    NSURL *url = [NSURL URLWithString:@"http://www.12306.cn/mormhweb"];
     NSURLRequest *request = [NSURLRequest requestWithURL:url];
     [self.webview loadRequest:request];
 }
 
-
-
-- (void)didReceiveMemoryWarning {
-    [super didReceiveMemoryWarning];
-    // Dispose of any resources that can be recreated.
-}
 
 @end
